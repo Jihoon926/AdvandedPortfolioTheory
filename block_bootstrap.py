@@ -5,7 +5,7 @@ import yfinance as yf
 
 
 def fetch_returns(tickers, start="2020-01-01", end="2025-01-01"):
-    data = yf.download(tickers, start=start, end=end)["Adj Close"]
+    data = yf.download(tickers, start=start, end=end, auto_adjust=False)["Adj Close"]
     returns = np.log(data / data.shift(1)).dropna()
     return returns.T.values  # shape: (num_assets, num_days)
 
@@ -103,3 +103,4 @@ if __name__ == "__main__":
     # )
     tickers = ["AAPL", "MSFT"]
     return_data = fetch_returns(tickers, start="2020-01-01", end="2023-01-01")
+    print(return_data)

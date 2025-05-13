@@ -3,6 +3,8 @@ import pandas as pd
 import yfinance as yf
 from gurobipy import Model, GRB, quicksum
 import matplotlib.pyplot as plt
+from matplotlib.ticker import PercentFormatter
+
 
 def plot_efficient_frontier(results_df_1, risk):
     """
@@ -34,6 +36,85 @@ def plot_efficient_frontier(results_df_1, risk):
     plt.ylabel("Expected Return")
     plt.legend()
     plt.grid(True)
+    plt.show()
+
+
+def plot_multiple_frontiers(results_dict, risk_key, cdd=False):
+    """
+    여러 샘플 개수에 대한 Efficient Frontier를 한 그래프에 시각화
+    - results_dict: {"label": results_df, ...}
+    - risk: risk 컬럼 이름 (e.g. "AvDD", "MaxDD")
+    """
+    plt.figure(figsize=(10, 6))
+    if risk_key == "AvDD":
+        plt.xlabel("Average Drawdown")
+    elif risk_key == "MaxDD":
+        plt.xlabel("Maximum Drawdown")
+    elif cdd != False:
+        plt.xlabel(f"{cdd}-Conditional Drawdown")
+
+    for label, df in results_dict.items():
+        gamma = df["gamma"]
+        risk = df[risk_key]
+        reward = df["ObjVal"]
+        sharpe = df["Reward/Risk"]
+
+        plt.plot(risk, reward, marker='o', linestyle='-', label=f"{label} samples")
+
+        # 최대 Sharpe 점 찍기
+        best_idx = sharpe.idxmax()
+        print(sharpe.values)
+        # plt.scatter(risk[best_idx], reward[best_idx], s=100, marker='*', label=f"{label} Max Sharpe", edgecolors='black')
+
+    plt.title(f"Efficient Frontiers, {risk_key}")
+    plt.ylabel("Rate of Return")
+    # 퍼센트 포맷
+    plt.gca().xaxis.set_major_formatter(PercentFormatter(1.0))
+    plt.gca().yaxis.set_major_formatter(PercentFormatter(1.0))
+    # plt.xlim(0.05, 0.2)   # ← x축 범위 설정
+    # plt.ylim(0.3, 0.8)   # ← y축 범위 설정
+    plt.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=3, frameon=True)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(f"./result/return_risk_{risk_key}.png", dpi=300, bbox_inches='tight')
+    plt.show()
+
+def plot_multiple_sharpes(results_dict, risk_key, cdd=False):
+    """
+    여러 샘플 개수에 대한 Efficient Frontier를 한 그래프에 시각화
+    - results_dict: {"label": results_df, ...}
+    - risk: risk 컬럼 이름 (e.g. "AvDD", "MaxDD")
+    """
+    plt.figure(figsize=(10, 6))
+    if risk_key == "AvDD":
+        plt.xlabel("Average Drawdown")
+    elif risk_key == "MaxDD":
+        plt.xlabel("Maximum Drawdown")
+    elif cdd != False:
+        plt.xlabel(f"{cdd}-Conditional Drawdown")
+
+    for label, df in results_dict.items():
+        gamma = df["gamma"]
+        risk = df[risk_key]
+        reward = df["ObjVal"]
+        sharpe = df["Reward/Risk"]
+
+        plt.plot(risk, sharpe, marker='o', linestyle='-', label=f"{label} samples")
+
+        # 최대 Sharpe 점 찍기
+        best_idx = sharpe.idxmax()
+        print(sharpe.values)
+        # plt.scatter(risk[best_idx], reward[best_idx], s=100, marker='*', label=f"{label} Max Sharpe", edgecolors='black')
+
+    plt.title(f"Optimal risk-adjusted returns, {risk_key}")
+    plt.ylabel("Risk-adjusted return")
+    plt.gca().xaxis.set_major_formatter(PercentFormatter(1.0))
+    # plt.xlim(0.05, 0.2)   # ← x축 범위 설정
+    # plt.ylim(0.3, 0.8)   # ← y축 범위 설정
+    plt.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=3, frameon=True)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(f"./result/sharpe_risk_{risk_key}.png", dpi=300, bbox_inches='tight')
     plt.show()
 
 def plot_reward_avgdd(df_list, alpha_lst):
@@ -111,6 +192,7 @@ def price_data(selected_price_data):
 
     return cum_returns_1yr, cum_returns_3yr
 
+
 def maxdd_model(y, gamma, x_min, x_max, leverage = None):
     """
     y : (T×N) ‑ DataFrame, t‑시점까지 **누적** 수익률
@@ -132,56 +214,18 @@ def maxdd_model(y, gamma, x_min, x_max, leverage = None):
         if t > 0:
             m.addConstr(u[t] >= u[t-1],    name=f"u_ge_prev_{t}")          # u_t ≥ u_{t-1}
 
-        m.addConstr(u[t] - w_t <= gamma,   name=f"dd_bound_{t}")           # DD ≤ γ
+        m.addConstr(u[t] - w_t <= max_dd,   name=f"dd_bound_{t}")           # DD ≤ γ
     m.addConstr(max_dd <= gamma, name="maxdd_bound")
     # 3) 예산(레버리지 금지)
     if leverage == None:
         m.addConstr(quicksum(x[i] for i in range(N)) == 1, name="budget")
 
     # 4) 목적함수 – 연환산 수익률 최대화
-    mu = (1 + y.iloc[-1]) ** (252 / T) - 1        # 벡터(길이 N)
+    mu = y.iloc[-1] * (252 / T)      # 벡터(길이 N)
     m.setObjective(quicksum(x[i] * mu[i] for i in range(N)), GRB.MAXIMIZE)
 
     m.update()
     return m, x, u, max_dd 
-
-# def avgdd_model(y, gamma, x_min, x_max, leverage = None):
-#     """
-#     y : (T×N) pandas.DataFrame - 각 자산의 시점별 누적 수익률
-#     gamma : 허용 가능한 평균 드로우다운 (예: 0.15 = 15%)
-#     """
-
-#     T, N = y.shape
-#     model = Model("Maximize_Return_with_AvgDD_Constraint")
-
-#     # 1. 변수 정의
-#     x = model.addVars(N, lb=x_min, ub=x_max, vtype=GRB.CONTINUOUS, name="x")  # 포트폴리오 비중
-#     u = model.addVars(T, vtype=GRB.CONTINUOUS, name="u")                      # running max at t
-#     model.addConstr(u[0] == 0, name="u_initial")
-#     # 2. drawdown 제약조건 및 정의
-#     avgdd_expr = 0
-#     for t in range(T):
-#         w_t = quicksum(x[i] * y.iloc[t, i] for i in range(N))                # w_t = xᵗ y_t
-
-#         model.addConstr(u[t] >= w_t, name=f"u_ge_w_{t}")                     # u_t ≥ w_t
-#         if t > 0:
-#             model.addConstr(u[t] >= u[t - 1], name=f"u_monotone_{t}")       # u_t ≥ u_{t-1}
-
-#         avgdd_expr += u[t] - w_t                                            # D_t = u_t - w_t
-
-#     # 3. 평균 드로우다운 제약 (논문 기준)
-#     model.addConstr((1 / T) * avgdd_expr <= gamma, name="avgdd_bound")
-
-#     # 4. 예산 제약
-#     if leverage == None:
-#         model.addConstr(quicksum(x[i] for i in range(N)) == 1, name="budget")
-
-#     # 5. 목적함수: annualized return 최대화
-#     mu = (1 + y.iloc[-1]) ** (252 / T) - 1   # 연환산 수익률
-#     model.setObjective(quicksum(x[i] * mu[i] for i in range(N)), GRB.MAXIMIZE)
-
-#     model.update()
-#     return model, x, u
 
 def avgdd_model(y, gamma, x_min, x_max, leverage=None):
     """
@@ -205,17 +249,17 @@ def avgdd_model(y, gamma, x_min, x_max, leverage=None):
             m.addConstr(u[t] >= u[t-1])                   # non‑dec
 
         m.addConstr(dd[t] == u[t] - w_t)                  # DD_t
-
+    m.addConstr(u[0] == 0, name="u0_zero")
     # AvDD 제약  (평균)
     m.addConstr((1/T) * quicksum(dd[t] for t in range(T)) <= gamma,
-                name="avdd_bound")
+            name="avdd_bound")
 
     # 예산
     if leverage is None:
         m.addConstr(quicksum(x) == 1, name="budget")
 
     # 목적: 연환산 기대수익
-    mu = (1 + y.iloc[-1]) ** (252 / T) - 1
+    mu = y.iloc[-1]*(252 / T) 
     m.setObjective(quicksum(x[i] * mu[i] for i in range(N)), GRB.MAXIMIZE)
 
     m.update()
@@ -238,6 +282,7 @@ def cdar_model(y, gamma, alpha, x_min, x_max, leverage = None):
     max_dd = m.addVar(lb=0.0, vtype=GRB.CONTINUOUS, name="max_dd")          # Max Drawdown
 
     # 2) running max, drawdown, 초과분 z_k
+    cdar_factor = 1 / ((1 - alpha) * T)
     for t in range(T):
         w_t = quicksum(x[i] * y.iloc[t, i] for i in range(N))               # 누적수익 w_t
 
@@ -250,14 +295,14 @@ def cdar_model(y, gamma, alpha, x_min, x_max, leverage = None):
         drawdown = u[t] - w_t
         m.addConstr(z[t] >= drawdown - z0, name=f"z_excess_{t}")            # z_k ≥ DD - z0
 
-        # MaxDD 계산 제약
-        m.addConstr(max_dd >= drawdown, name=f"maxdd_ge_dd_{t}")
 
+        m.addConstr(z0 + cdar_factor * quicksum(z[t] for t in range(T)) <= gamma,
+                name="cdar_bound")
     # u_0 = 0
     m.addConstr(u[0] == 0, name="u0_zero")
 
     # 3) CDaR 제약 :  z0 + 1/((1-α)T) Σ z_k ≤ γ
-    cdar_factor = 1 / ((1 - alpha) * T)
+    
     m.addConstr(z0 + cdar_factor * quicksum(z[t] for t in range(T)) <= gamma,
                 name="cdar_bound")
 
@@ -271,6 +316,7 @@ def cdar_model(y, gamma, alpha, x_min, x_max, leverage = None):
 
     m.update()
     return m, x, u, z0, z, max_dd
+
 def cdar_model_compare_avgdd(y, gamma, alpha, x_min, x_max,
                leverage=None):
 

@@ -38,8 +38,7 @@ def estimate_n_star_all_series(data, max_lag=200, threshold=0.025, plot=False):
         n_stars.append(n_star)
 
         if plot:
-            plt.plot(acf_vals[1:], label=f'Series {i+1}')
-    print(n_stars)
+            plt.plot(acf_vals[1:], alpha=0.6)
     min_n_star = min(n_stars)
 
     if plot:
@@ -47,9 +46,11 @@ def estimate_n_star_all_series(data, max_lag=200, threshold=0.025, plot=False):
         plt.axhline(-threshold, color='red', linestyle='--')
         plt.title('Autocorrelation C(n) for all series')
         plt.xlabel('Lag (days)')
-        plt.ylabel('C(n)')
+        plt.ylabel('Autocorrelation')
         plt.legend()
         plt.grid(True)
+        plt.tight_layout()
+        plt.savefig("./result/autocorrelation_plot.png")
         plt.show()
 
     return n_stars, min_n_star
@@ -68,7 +69,7 @@ def block_bootstrap(data, block_size, num_blocks, seed=None):
         block = data[:, start_idx:start_idx + block_size]
         children.append(block)
 
-    resampled_data = np.concatenate(children, axis=1)
+    resampled_data = np.array(children)
     return resampled_data
 
 # Step 3: 전체 파이프라인
@@ -87,7 +88,7 @@ def run_block_bootstrap_pipeline(data, max_lag=200, threshold=0.025, num_blocks=
     resampled_data = block_bootstrap(
         data, block_size=common_n_star, num_blocks=num_blocks, seed=seed
     )
-    print(f"Resampled Data: {resampled_data.shape}")
+    print("Resampled data shape:", resampled_data.shape)
 
     return resampled_data, common_n_star, n_star_list
 
